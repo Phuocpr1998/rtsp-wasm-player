@@ -1,0 +1,2 @@
+#/bin/bash
+emcc -std=c++14 -Os -DNDEBUG -s WASM=1 -s USE_SDL=2 -v -s INITIAL_MEMORY=314572800 -s ALLOW_MEMORY_GROWTH=1 -fwasm-exceptions -s PTHREAD_POOL_SIZE=8  -s USE_PTHREADS=1 -I . -I .. -I dist/ffmpeg/include -I ../3rdparty/boost/include -I ../3rdparty/json/single_include -I ../3rdparty/glm -L dist/ffmpeg/lib -lavcodec -lavdevice -lavfilter -lavformat -lavutil -lpostproc -lswresample -lswscale -D UTIL_LOG_TAG=\"WASM\" -D UTIL_LOGGER_ENABLE src/main.cc ../common/media/*.cc --bind -o lib/decoder.js
