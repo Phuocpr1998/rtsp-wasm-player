@@ -35,6 +35,7 @@ class WsClient {
   #options;
   #ws = null;
   #decoder = null;
+  #intervalGetFrame = null;
   #t_onmsg = Date.now();
 
   constructor(options) {
@@ -80,11 +81,11 @@ class WsClient {
 
     this.#decoder = new Module.Decoder();
     this.#decoder.open(
-        JSON.stringify(this.#options.stream),
-        this.#options.decode_queue_size,
-        this.#options.decode_thread_count,
-        this.#options.decode_thread_type,
-        this.#ondecode.bind(this));
+      JSON.stringify(this.#options.stream),
+      this.#options.decode_queue_size,
+      this.#options.decode_thread_count,
+      this.#options.decode_thread_type,
+      this.#ondecode.bind(this));
 
     const ws = new WebSocket(this.#options.url);
     ws.binaryType = 'arraybuffer';
@@ -95,11 +96,20 @@ class WsClient {
     this.#ws = ws;
   }
 
+  getRenderFrame() {
+    if (!this.#intervalGetFrame) {
+      this.#intervalGetFrame = setInterval(() => {
+        this.#decoder.getRenderFrame();
+      }, 67)
+    }
+  }
+
   close() {
     if (this.#ws != null) {
       this.#logd('ws close');
       this.#ws.close();
       this.#ws = null;
+      clearInterval(this.#intervalGetFrame);
       this.#decoder.delete();
       this.#decoder = null;
       this.#options.dbg && Module.DoLeakCheck && Module.DoLeakCheck();
@@ -115,7 +125,7 @@ class WsClient {
     if (this.#options.dbg) {
       const t = Date.now();
       this.#logd(`ws message: ${this.#options.url}` +
-          `, interval: ${t - this.#t_onmsg} ms`);
+        `, interval: ${t - this.#t_onmsg} ms`);
       this.#t_onmsg = t;
     }
     this.#options.dbg && console.time("ws onmessage");
@@ -127,13 +137,19 @@ class WsClient {
         Module.HEAPU8.set(data, buf);
         if (this.#options.decode_async) {
           this.#decoder.decodeAsync(buf, data.length);
+          this.getRenderFrame();
         } else {
           // process the frame in #ondecode callback
           const frame = this.#decoder.decode(buf, data.length);
           // release the return frame reference
           if (frame != null) frame.delete();
         }
-      } finally {
+      }
+      // catch (e) {
+      //   console.log('error', e);
+      //   this.close();
+      // }
+      finally {
         Module._free(buf);
       }
     } else {

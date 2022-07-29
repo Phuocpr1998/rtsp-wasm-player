@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <exception>
+#include <chrono>
 
 #include "common/media/stream_video.h"
 #include "common/net/json.h"
@@ -19,6 +21,8 @@
 #include "common/util/logext.h"
 
 #include "frame.h"
+
+using namespace std::chrono_literals;
 
 class Decoder {
  public:
@@ -47,10 +51,13 @@ class Decoder {
 
   Decoder() {
     VLOG(2) << __func__;
+    ThreadDecodeStart();
+    ThreadRenderStart();
   }
   ~Decoder() {
     VLOG(2) << __func__;
-    ThreadStop();
+    ThreadDecodeStop();
+    ThreadRenderStop();
   }
 
   void Open(
@@ -140,8 +147,6 @@ class Decoder {
   // not works well as clone frame not supported in frame.h
   //  otherwise alloc more frames for decoding from packets when op->GetFrame()
   void DecodeAsync(uintptr_t buf_p, int buf_size) {
-    ThreadStart();
-
     const uint8_t *buf = reinterpret_cast<uint8_t *>(buf_p);
     {
       std::lock_guard<std::mutex> _(decode_mutex_);
@@ -164,48 +169,53 @@ class Decoder {
           LOG(WARNING)
               << "decode eldest data (not key packet) ignored, as queue size > "
               << decode_datas_maxsize_;
+          throw "decode eldest data (not key packet) ignored";
           break;
         }
       }
     }
     decode_cond_.notify_one();
+  }
 
-    if (!decode_results_.empty()) {
-      // callback results in main thread
-      std::lock_guard<std::mutex> lock(decode_results_mutex_);
-      for (auto &&f : decode_results_) {
-        if (decode_cb_) decode_cb_(f);
-      }
-      decode_results_.clear();
+  void GetRenderFrame() {
+    if (!render_frames_.empty()) {
+      std::lock_guard<std::mutex> lock(render_frames_mutex_);
+      auto f = render_frames_.front();
+      if (decode_cb_) decode_cb_(f);
+      f->Free();
+      render_frames_.erase(render_frames_.begin());
     }
   }
 
  private:
-  void ThreadStart() {
+  void ThreadDecodeStart() {
     if (!decode_stop_) return;
     decode_stop_ = false;
-    decode_thread_ = std::thread(&Decoder::ThreadRun, this);
+    decode_thread_ = std::thread(&Decoder::ThreadDecodeRun, this);
   }
 
-  void ThreadStop() {
+  void ThreadDecodeStop() {
     if (decode_stop_) return;
     decode_stop_ = true;
     {
       std::lock_guard<std::mutex> _(decode_mutex_);
       decode_datas_.push_back(nullptr);
     }
-    decode_cond_.notify_one();
+    LOG(WARNING) << "Stopping ThreadDecodeRun";
+    decode_cond_.notify_all();
     if (decode_thread_.joinable()) {
       decode_thread_.join();
     }
+    LOG(WARNING) << "Stopped ThreadDecodeRun";
   }
 
-  void ThreadRun() {
+  void ThreadDecodeRun() {
     while (!decode_stop_) {
+      // LOG(WARNING) << "ThreadDecodeRun";
       std::vector<std::shared_ptr<net::Data>> datas;
       {
         std::unique_lock<std::mutex> lock(decode_mutex_);
-        decode_cond_.wait(lock, [this] { return !decode_datas_.empty(); });
+        decode_cond_.wait_for(lock, 100ms, [this] { return !decode_datas_.empty(); });
         datas = std::move(decode_datas_);
       }
       if (decode_stop_) break;
@@ -232,11 +242,54 @@ class Decoder {
                 std::make_shared<Frame>()->Alloc(data->type, frame));
           }
         } catch (const StreamError &err) {
-          LOG(ERROR) << err.what();
+          LOG(ERROR) << "GetFrame error" << err.what();
           break;
         }
       }
     }
+    LOG(WARNING) << "Stopped ThreadDecodeRun";
+  }
+
+  void ThreadRenderStart() {
+    if (!render_stop_) return;
+    render_stop_ = false;
+    render_thread_ = std::thread(&Decoder::ThreadRenderRun, this, decode_cb_);
+  }
+
+  void ThreadRenderStop() {
+    if (render_stop_) return;
+    render_stop_ = true;
+    LOG(WARNING) << "Stopping ThreadRenderRun";
+    if (render_thread_.joinable()) {
+      render_thread_.join();
+    }
+    LOG(WARNING) << "Stopped ThreadRenderRun";
+  }
+
+  void ThreadRenderRun(decode_callback_t decode_cb) {
+    while (!render_stop_) {
+      // LOG(WARNING) << "ThreadRenderRun";
+      std::vector<std::shared_ptr<Frame>> datas;
+      {
+        std::unique_lock<std::mutex> lock(decode_results_mutex_);
+        decode_cond_.wait_for(lock, 1000ms, [this] { return !decode_results_.empty(); });
+        datas = std::move(decode_results_);
+      }
+      if (decode_stop_ || render_stop_) break;
+
+      for (auto &&f : datas) {
+        try {
+          {
+            std::lock_guard<std::mutex> lock(render_frames_mutex_);
+            render_frames_.push_back(f);
+          }
+        } catch(std::exception &e) {
+          LOG(ERROR) << "ThreadRenderRun" << e.what();
+        }
+      }
+      std::this_thread::sleep_for(10ms);
+    }
+    LOG(WARNING) << "Stopped ThreadRenderRun";
   }
 
   StreamInfo stream_info_;
@@ -251,8 +304,14 @@ class Decoder {
   std::mutex decode_mutex_;
   std::condition_variable decode_cond_;
 
+  std::atomic_bool render_stop_{true};
+  std::thread render_thread_;
+
   std::mutex decode_results_mutex_;
   std::vector<std::shared_ptr<Frame>> decode_results_;
+
+  std::mutex render_frames_mutex_;
+  std::vector<std::shared_ptr<Frame>> render_frames_;
 
   std::shared_ptr<logext::TimeStat> time_stat_ = logext::TimeStat::Create(60*2);
 };

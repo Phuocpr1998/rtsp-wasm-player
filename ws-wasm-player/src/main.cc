@@ -36,7 +36,8 @@ EMSCRIPTEN_BINDINGS(decoder) {
     .constructor<>()
     .function("open", &Decoder::Open)
     .function("decode", &Decoder::Decode, allow_raw_pointers())
-    .function("decodeAsync", &Decoder::DecodeAsync, allow_raw_pointers());
+    .function("decodeAsync", &Decoder::DecodeAsync, allow_raw_pointers())
+    .function("getRenderFrame", &Decoder::GetRenderFrame);
 
   class_<OpenGLPlayer>("OpenGLPlayer")
     .smart_ptr_constructor("OpenGLPlayer", &std::make_shared<OpenGLPlayer>)

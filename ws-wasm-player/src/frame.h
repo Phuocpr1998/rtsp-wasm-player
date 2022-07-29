@@ -22,6 +22,7 @@ class Frame : public std::enable_shared_from_this<Frame> {
   Frame()
     : type_(AVMEDIA_TYPE_UNKNOWN), frame_(nullptr) {
     VLOG(2) << __func__;
+    pos = 0;
   }
   ~Frame() {
     VLOG(2) << __func__;
@@ -67,7 +68,10 @@ class Frame : public std::enable_shared_from_this<Frame> {
         emscripten::typed_memory_view(size(), frame_->data[0]));
   }
 
- private:
+ public:
   int type_;
+  double *speed;
+  int64_t pos;          /* byte position of the frame in the input file */
+  int serial;               /* presentation timestamp for the frame */
   AVFrame *frame_;
 };
