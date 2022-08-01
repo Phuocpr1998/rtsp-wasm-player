@@ -29,11 +29,12 @@ class StreamVideoOp : public StreamOp {
   void Flush();
   void Free();
 
+ public:
+  AVCodecContext *codec_ctx_;
  private:
   StreamVideoOptions options_;
   std::shared_ptr<StreamOpContext> op_ctx_;
 
-  AVCodecContext *codec_ctx_;
   AVFrame *frame_;
 
   SwsContext *sws_ctx_;

@@ -60,13 +60,12 @@ AVFrame *StreamVideoOp::GetFrame(AVPacket *packet) {
       codec_ctx_->thread_count = 0; // auto matic
     }
     if (options_.dec_thread_type > 0) {
-      // if (codec->capabilities | AV_CODEC_CAP_FRAME_THREADS)
-      //   codec_ctx_->thread_type = FF_THREAD_FRAME;
-      // else if (codec->capabilities | AV_CODEC_CAP_SLICE_THREADS)
-      //   codec_ctx_->thread_type = FF_THREAD_SLICE;
-      // else
-      //   codec_ctx_->thread_count = 1; //don't use multithreading
-      codec_ctx_->thread_type = options_.dec_thread_type;
+      if (codec->capabilities | AV_CODEC_CAP_FRAME_THREADS)
+        codec_ctx_->thread_type = FF_THREAD_FRAME;
+      else if (codec->capabilities | AV_CODEC_CAP_SLICE_THREADS)
+        codec_ctx_->thread_type = FF_THREAD_SLICE;
+      else
+        codec_ctx_->thread_type = options_.dec_thread_type;
     }
 
     int ret = avcodec_open2(codec_ctx_, codec, nullptr);
