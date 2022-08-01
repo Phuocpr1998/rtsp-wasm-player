@@ -71,6 +71,7 @@ class Frame : public std::enable_shared_from_this<Frame> {
  public:
   int type_;
   double *speed;
+  double duration;
   int64_t pos;          /* byte position of the frame in the input file */
   int serial;               /* presentation timestamp for the frame */
   AVFrame *frame_;

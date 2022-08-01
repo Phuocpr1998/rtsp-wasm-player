@@ -51,19 +51,19 @@ class Decoder {
 
   Decoder() {
     VLOG(2) << __func__;
-    ThreadDecodeStart();
-    ThreadRenderStart();
+    // ThreadRenderStart();
   }
   ~Decoder() {
     VLOG(2) << __func__;
     ThreadDecodeStop();
-    ThreadRenderStop();
+    // ThreadRenderStop();
   }
 
   void Open(
       const std::string &stream_info,
       int queue_size, int thread_count, int thread_type,
       emscripten::val lambda) {
+    av_log_set_level(AV_LOG_QUIET);
     VLOG(1) << __func__ << ": " << stream_info;
     stream_info_ = net::to_stream_info(stream_info);
     if (queue_size >= 2) {
@@ -147,6 +147,7 @@ class Decoder {
   // not works well as clone frame not supported in frame.h
   //  otherwise alloc more frames for decoding from packets when op->GetFrame()
   void DecodeAsync(uintptr_t buf_p, int buf_size) {
+    ThreadDecodeStart();
     const uint8_t *buf = reinterpret_cast<uint8_t *>(buf_p);
     {
       std::lock_guard<std::mutex> _(decode_mutex_);
@@ -178,12 +179,12 @@ class Decoder {
   }
 
   void GetRenderFrame() {
-    if (!render_frames_.empty()) {
-      std::lock_guard<std::mutex> lock(render_frames_mutex_);
-      auto f = render_frames_.front();
+    if (!decode_results_.empty()) {
+      std::lock_guard<std::mutex> lock(decode_results_mutex_);
+      auto f = decode_results_.front();
       if (decode_cb_) decode_cb_(f);
       f->Free();
-      render_frames_.erase(render_frames_.begin());
+      decode_results_.erase(decode_results_.begin());
     }
   }
 
@@ -314,4 +315,6 @@ class Decoder {
   std::vector<std::shared_ptr<Frame>> render_frames_;
 
   std::shared_ptr<logext::TimeStat> time_stat_ = logext::TimeStat::Create(60*2);
+
+  double frame_timer, max_frame_duration = 10.0, remaining_time = 0.0;
 };
