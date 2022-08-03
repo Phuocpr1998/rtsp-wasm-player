@@ -243,7 +243,7 @@ class Decoder {
                 std::make_shared<Frame>()->Alloc(data->type, frame));
           }
         } catch (const StreamError &err) {
-          LOG(ERROR) << "GetFrame error" << err.what();
+          // LOG(WARNING) << "GetFrame error" << err.what();
           break;
         }
       }
